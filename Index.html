@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visor GPS 3D - Telemetría & Loop</title>
+  
+  <!-- CDNs de Three.js y OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+      user-select: none;
+    }
+
+    body {
+      background-color: #0f0f12;
+      color: #e2e2e8;
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    /* Panel Superior Izquierdo (Monotonal) */
+    .ui-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      background: rgba(22, 22, 26, 0.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid #2e2e38;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      padding: 18px;
+      width: 320px;
+      max-height: calc(100vh - 120px);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+
+    .header-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      color: #8a8a9e;
+      font-size: 11px;
+      margin-top: 3px;
+    }
+
+    .btn-upload {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #24242c;
+      color: #ffffff;
+      border: 1px solid #3a3a48;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+
+    .btn-upload:hover {
+      background-color: #32323e;
+      border-color: #525266;
+    }
+
+    #csv-file-input { display: none; }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #727285;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* PANEL DE TELEMETRÍA Y COORDENADAS GPS */
+    .telemetry-card {
+      background: #15151a;
+      border: 1px solid #282834;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .telemetry-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .telemetry-label {
+      color: #8a8a9e;
+      font-size: 11px;
+    }
+
+    .telemetry-value {
+      color: #ffffff;
+      font-weight: bold;
+      font-family: 'Courier New', Courier, monospace;
+      letter-spacing: 0.5px;
+    }
+
+    /* Lista de Recorridos */
+    .track-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .track-item {
+      background: #18181d;
+      border: 1px solid #282832;
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .track-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+      flex-grow: 1;
+    }
+
+    .color-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .track-details {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+    }
+
+    .track-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #ececf2;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .track-date {
+      font-size: 9px;
+      color: #727285;
+    }
+
+    .checkbox-container {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+
+    .checkbox-container input { display: none; }
+
+    .custom-checkbox {
+      width: 16px;
+      height: 16px;
+      border: 1px solid #3a3a48;
+      border-radius: 4px;
+      background: #121216;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .checkbox-container input:checked + .custom-checkbox {
+      background: #4a4a5e;
+      border-color: #6a6a80;
+    }
+
+    .custom-checkbox::after {
+      content: '';
+      width: 4px;
+      height: 7px;
+      border: solid #ffffff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+      display: none;
+      margin-bottom: 2px;
+    }
+
+    .checkbox-container input:checked + .custom-checkbox::after { display: block; }
+
+    /* BARRA INFERIOR DE CONTROLES DE REPRODUCCIÓN (BOTTOM-CENTER) */
+    .playback-bar {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(22, 22, 26, 0.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid #2e2e38;
+      border-radius: 30px;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      width: 90%;
+      max-width: 620px;
+    }
+
+    .btn-control {
+      background: #24242c;
+      color: #ffffff;
+      border: 1px solid #3a3a48;
+      border-radius: 50%;
+      width: 38px;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .btn-control:hover {
+      background: #32323e;
+      border-color: #6a6a80;
+      transform: scale(1.05);
+    }
+
+    /* Botón de Loop Activo */
+    .btn-control.active {
+      background: #4a4a5e;
+      border-color: #ffffff;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-speed {
+      background: #18181d;
+      border: 1px solid #3a3a48;
+      color: #a0a0b2;
+      border-radius: 12px;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .btn-speed:hover {
+      color: #ffffff;
+      border-color: #525266;
+    }
+
+    .timeline-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-grow: 1;
+    }
+
+    .timeline-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 5px;
+      border-radius: 3px;
+      background: #2a2a36;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .timeline-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(255,255,255,0.5);
+      transition: transform 0.1s ease;
+    }
+
+    .timeline-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+    .progress-text {
+      font-size: 11px;
+      color: #8a8a9e;
+      font-weight: 600;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    #toast {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 20;
+      background: #18181d;
+      border: 1px solid #3a3a48;
+      border-radius: 8px;
+      color: #e2e2e8;
+      padding: 12px 18px;
+      font-size: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      display: none;
+    }
+
+    .controls-hint {
+      border-top: 1px solid #282832;
+      padding-top: 10px;
+      font-size: 10px;
+      line-height: 1.5;
+      color: #727285;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2e2e38; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <!-- PANEL DE GESTIÓN Y TELEMETRÍA -->
+  <div class="ui-panel">
+    <div>
+      <div class="header-title">Visor GPS 3D</div>
+      <div class="subtitle">Análisis de recorridos multibase</div>
+    </div>
+
+    <!-- REFERENCIA DE POSICIÓN GPS -->
+    <div class="section-label">Telemetría en Tiempo Real</div>
+    <div class="telemetry-card">
+      <div class="telemetry-row">
+        <span class="telemetry-label">Latitud:</span>
+        <span class="telemetry-value" id="tele-lat">--</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-label">Longitud:</span>
+        <span class="telemetry-value" id="tele-lon">--</span>
+      </div>
+      <div class="telemetry-row">
+        <span class="telemetry-label">Altitud:</span>
+        <span class="telemetry-value" id="tele-alt">--</span>
+      </div>
+    </div>
+
+    <label for="csv-file-input" class="btn-upload">+ Subir Archivo CSV</label>
+    <input type="file" id="csv-file-input" accept=".csv,.txt" multiple />
+
+    <div class="section-label">Bases de Datos Cargadas</div>
+    <div class="track-list" id="track-list">
+      <div style="font-size: 11px; color: #525266; text-align: center; padding: 14px;">
+        Sin archivos cargados.<br><br>Arrastra tus CSV aquí para visualizarlos.
+      </div>
+    </div>
+
+    <div class="controls-hint">
+      <strong>Navegación 3D:</strong><br>
+      • Clic Izquierdo: Rotar vista<br>
+      • Clic Derecho: Desplazar escena<br>
+      • Scroll: Zoom
+    </div>
+  </div>
+
+  <!-- CONTROLES INFERIORES DE REPRODUCCIÓN Y ANIMACIÓN -->
+  <div class="playback-bar">
+    <button class="btn-control" id="btn-play-pause" onclick="togglePlayPause()" title="Reproducir/Pausar">▶</button>
+    <button class="btn-control" onclick="resetAnimation()" title="Reiniciar">↺</button>
+    <button class="btn-control" id="btn-loop" onclick="toggleLoop()" title="Bucle (Loop)">🔁</button>
+    
+    <div class="timeline-container">
+      <input type="range" id="timeline-slider" class="timeline-slider" min="0" max="1000" value="0" oninput="onSliderChange(this.value)">
+      <span class="progress-text" id="progress-text">0%</span>
+    </div>
+
+    <button class="btn-speed" id="btn-speed" onclick="toggleSpeed()">1x</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    // --- ESTADO Y VARIABLES GLOBALES ---
+    let scene, camera, renderer, controls;
+    let gridHelper;
+    let datasets = [];
+    let globalAnchor = null;
+
+    // Estado de la animación (Velocidad reducida para mayor fluidez y detalle)
+    let isPlaying = false;
+    let isLooping = false;
+    let animProgress = 0; // De 0.0 a 1.0
+    let animSpeed = 0.0004; // Velocidad pausada y refinada
+    let speedMultiplier = 1;
+
+    // --- ESCALA CROMÁTICA HSB ---
+    function hsbToHex(h, s, b) {
+      s /= 100;
+      b /= 100;
+      const k = (n) => (n + h / 60) % 6;
+      const f = (n) => b * (1 - s * Math.max(0, Math.min(k(n), 4 - k(n), 1)));
+      const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
+      return `#${toHex(f(5))}${toHex(f(3))}${toHex(f(1))}`;
+    }
+
+    function getNextHSBColor(index) {
+      const hue = (index * 45) % 360;
+      return hsbToHex(hue, 85, 95);
+    }
+
+    // --- INICIALIZACIÓN 3D ---
+    function init3D() {
+      const container = document.getElementById('canvas-container');
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0f0f12);
+
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 50000);
+      camera.position.set(120, 160, 220);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+
+      gridHelper = new THREE.GridHelper(2000, 80, 0x3a3a48, 0x1e1e26);
+      scene.add(gridHelper);
+
+      window.addEventListener('resize', onWindowResize);
+      setupDragAndDrop();
+
+      animate();
+    }
+
+    // --- BUCLE DE ANIMACIÓN Y RENDER ---
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (isPlaying) {
+        animProgress += animSpeed * speedMultiplier;
+        if (animProgress >= 1) {
+          if (isLooping) {
+            animProgress = 0; // Reinicio automático en modo bucle
+          } else {
+            animProgress = 1;
+            isPlaying = false;
+            updatePlayButtonUI();
+          }
+        }
+        updateTimelineUI();
+      }
+
+      updateTrianglePositionsAndTelemetry();
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // Actualiza posiciones, rotaciones y panel de coordenadas GPS
+    function updateTrianglePositionsAndTelemetry() {
+      let activeTrackForTelemetry = null;
+
+      datasets.forEach(track => {
+        if (!track.visible || track.points.length < 2 || !track.triangleMarker) return;
+
+        if (!activeTrackForTelemetry) {
+          activeTrackForTelemetry = track;
+        }
+
+        const maxIdx = track.points.length - 1;
+        const exactIdx = animProgress * maxIdx;
+        const currentIdx = Math.min(Math.floor(exactIdx), maxIdx - 1);
+        const nextIdx = Math.min(currentIdx + 1, maxIdx);
+
+        const currentPt = track.points[currentIdx];
+        const nextPt = track.points[nextIdx];
+        const factor = exactIdx - currentIdx;
+
+        // Posición tridimensional interpolada
+        const targetPos = new THREE.Vector3().lerpVectors(currentPt, nextPt, factor);
+        track.triangleMarker.position.copy(targetPos);
+
+        // Orientación del vértice del triángulo
+        if (currentPt.distanceToSquared(nextPt) > 0.0001) {
+          track.triangleMarker.lookAt(nextPt);
+        }
+      });
+
+      // Actualizar Telemetría en pantalla para la base de datos activa
+      if (activeTrackForTelemetry && activeTrackForTelemetry.rawGpsData.length > 0) {
+        const gpsList = activeTrackForTelemetry.rawGpsData;
+        const maxIdx = gpsList.length - 1;
+        const exactIdx = animProgress * maxIdx;
+        const currentIdx = Math.min(Math.floor(exactIdx), maxIdx - 1);
+        const nextIdx = Math.min(currentIdx + 1, maxIdx);
+        const factor = exactIdx - currentIdx;
+
+        const p1 = gpsList[currentIdx];
+        const p2 = gpsList[nextIdx];
+
+        const curLat = p1.lat + (p2.lat - p1.lat) * factor;
+        const curLon = p1.lon + (p2.lon - p1.lon) * factor;
+        const curAlt = p1.alt + (p2.alt - p1.alt) * factor;
+
+        document.getElementById('tele-lat').innerText = curLat.toFixed(6) + '°';
+        document.getElementById('tele-lon').innerText = curLon.toFixed(6) + '°';
+        document.getElementById('tele-alt').innerText = curAlt.toFixed(1) + ' m';
+      } else {
+        document.getElementById('tele-lat').innerText = '--';
+        document.getElementById('tele-lon').innerText = '--';
+        document.getElementById('tele-alt').innerText = '--';
+      }
+    }
+
+    // --- CONTROLES DE REPRODUCCIÓN Y LOOP ---
+    function togglePlayPause() {
+      if (datasets.length === 0) return;
+      if (animProgress >= 1) animProgress = 0;
+      isPlaying = !isPlaying;
+      updatePlayButtonUI();
+    }
+
+    function toggleLoop() {
+      isLooping = !isLooping;
+      const btn = document.getElementById('btn-loop');
+      if (isLooping) {
+        btn.classList.add('active');
+        showToast('Modo Bucle Activo');
+      } else {
+        btn.classList.remove('active');
+        showToast('Modo Bucle Desactivado');
+      }
+    }
+
+    function resetAnimation() {
+      animProgress = 0;
+      isPlaying = false;
+      updatePlayButtonUI();
+      updateTimelineUI();
+    }
+
+    function updatePlayButtonUI() {
+      const btn = document.getElementById('btn-play-pause');
+      btn.innerText = isPlaying ? '❚❚' : '▶';
+    }
+
+    function onSliderChange(val) {
+      animProgress = parseFloat(val) / 1000;
+      updateTimelineUI();
+    }
+
+    function updateTimelineUI() {
+      const slider = document.getElementById('timeline-slider');
+      const text = document.getElementById('progress-text');
+      slider.value = Math.round(animProgress * 1000);
+      text.innerText = `${Math.round(animProgress * 100)}%`;
+    }
+
+    function toggleSpeed() {
+      const btn = document.getElementById('btn-speed');
+      if (speedMultiplier === 1) {
+        speedMultiplier = 2;
+        btn.innerText = '2x';
+      } else if (speedMultiplier === 2) {
+        speedMultiplier = 4;
+        btn.innerText = '4x';
+      } else if (speedMultiplier === 4) {
+        speedMultiplier = 0.5;
+        btn.innerText = '0.5x';
+      } else {
+        speedMultiplier = 1;
+        btn.innerText = '1x';
+      }
+    }
+
+    // --- CONSTRUCCIÓN DEL RECORRIDO Y EL TRIÁNGULO BLANCO ---
+    function build3DTrackMesh(track) {
+      const group = new THREE.Group();
+
+      // Línea de trayectoria
+      const geometry = new THREE.BufferGeometry().setFromPoints(track.points);
+      const material = new THREE.LineBasicMaterial({ color: track.color, linewidth: 2 });
+      const line = new THREE.Line(geometry, material);
+      group.add(line);
+
+      // Puntos a lo largo de la ruta
+      const sphereGeo = new THREE.SphereGeometry(1.2, 8, 8);
+      const sphereMat = new THREE.MeshBasicMaterial({ color: track.color });
+      const step = Math.max(1, Math.floor(track.points.length / 180));
+      
+      for (let i = 0; i < track.points.length; i += step) {
+        const pointMesh = new THREE.Mesh(sphereGeo, sphereMat);
+        pointMesh.position.copy(track.points[i]);
+        group.add(pointMesh);
+      }
+
+      // Triángulo Blanco de Movimiento (ConeGeometry de 3 lados)
+      const coneGeo = new THREE.ConeGeometry(3.5, 9, 3);
+      coneGeo.rotateX(Math.PI / 2);
+      
+      const coneMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const triangleMarker = new THREE.Mesh(coneGeo, coneMat);
+
+      if (track.points.length > 0) {
+        triangleMarker.position.copy(track.points[0]);
+      }
+
+      group.add(triangleMarker);
+      track.triangleMarker = triangleMarker;
+
+      scene.add(group);
+      track.group = group;
+    }
+
+    // --- PARSER DE CSV Y GPS ---
+    const fileInput = document.getElementById('csv-file-input');
+    fileInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+      fileInput.value = '';
+    });
+
+    function setupDragAndDrop() {
+      window.addEventListener('dragover', (e) => e.preventDefault());
+      window.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+          handleFiles(e.dataTransfer.files);
+        }
+      });
+    }
+
+    function handleFiles(files) {
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          parseCSVContent(file.name, e.target.result);
+        };
+        reader.readAsText(file);
+      });
+    }
+
+    function parseCSVContent(fileName, text) {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length === 0) return;
+
+      const firstLine = lines[0];
+      const delimiter = (firstLine.includes(';') && (firstLine.split(';').length > firstLine.split(',').length)) ? ';' : ',';
+      const rows = lines.map(line => line.split(delimiter).map(cell => cell.trim().replace(/^"|"$/g, '')));
+
+      let startIdx = 0;
+      let xIdx = -1, yIdx = -1, zIdx = -1;
+      let latIdx = -1, lonIdx = -1, altIdx = -1, dateIdx = -1;
+
+      const headerRow = rows[0].map(h => h.toLowerCase());
+
+      xIdx = headerRow.findIndex(h => h === 'x_m' || h === 'x');
+      yIdx = headerRow.findIndex(h => h === 'y_m' || h === 'y');
+      zIdx = headerRow.findIndex(h => h === 'z_m' || h === 'z');
+
+      latIdx = headerRow.findIndex(h => h.includes('lat'));
+      lonIdx = headerRow.findIndex(h => h.includes('lon') || h.includes('lng'));
+      altIdx = headerRow.findIndex(h => h.includes('alt') || h.includes('ele'));
+      dateIdx = headerRow.findIndex(h => h.includes('time') || h.includes('date') || h.includes('fecha'));
+
+      if (headerRow.some(h => h.includes('lat') || h.includes('x') || h.includes('timestamp'))) {
+        startIdx = 1;
+      }
+
+      const points = [];
+      const rawGpsData = [];
+      let detectedDate = null;
+
+      for (let i = startIdx; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length < 3) continue;
+
+        let x = null, y = null, z = null;
+        let lat = (latIdx !== -1 && row[latIdx] !== undefined) ? parseFloat(row[latIdx]) : 0;
+        let lon = (lonIdx !== -1 && row[lonIdx] !== undefined) ? parseFloat(row[lonIdx]) : 0;
+        let alt = (altIdx !== -1 && row[altIdx] !== undefined) ? parseFloat(row[altIdx]) : 0;
+
+        if (xIdx !== -1 && yIdx !== -1 && zIdx !== -1 && row[xIdx] !== undefined) {
+          x = parseFloat(row[xIdx]);
+          z = -parseFloat(row[yIdx]);
+          y = parseFloat(row[zIdx]);
+        }
+
+        if ((isNaN(x) || x === null) && latIdx !== -1 && lonIdx !== -1) {
+          if (!isNaN(lat) && !isNaN(lon)) {
+            if (!globalAnchor) {
+              globalAnchor = { lat, lon, alt };
+            }
+            const METERS_PER_DEG_LAT = 111320;
+            const METERS_PER_DEG_LON = 111320 * Math.cos(globalAnchor.lat * (Math.PI / 180));
+
+            x = (lon - globalAnchor.lon) * METERS_PER_DEG_LON;
+            z = -(lat - globalAnchor.lat) * METERS_PER_DEG_LAT;
+            y = alt - globalAnchor.alt;
+          }
+        }
+
+        if (x !== null && !isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          points.push(new THREE.Vector3(x, y, z));
+          rawGpsData.push({ lat, lon, alt });
+
+          if (!detectedDate && dateIdx !== -1 && row[dateIdx]) {
+            detectedDate = String(row[dateIdx]).split('T')[0];
+          }
+        }
+      }
+
+      if (points.length === 0) {
+        showToast(`Error: Formato no soportado en ${fileName}`);
+        return;
+      }
+
+      const trackId = Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+      const colorHex = getNextHSBColor(datasets.length);
+
+      const trackData = {
+        id: trackId,
+        name: fileName,
+        date: detectedDate || new Date().toISOString().split('T')[0],
+        color: colorHex,
+        points: points,
+        rawGpsData: rawGpsData,
+        visible: true,
+        group: null,
+        triangleMarker: null
+      };
+
+      build3DTrackMesh(trackData);
+      datasets.push(trackData);
+      renderTrackListUI();
+      fitCameraToAllTracks();
+      showToast(`Cargado: ${fileName} (${points.length} pts)`);
+    }
+
+    // --- CÁMARA Y NAVEGACIÓN ---
+    function fitCameraToAllTracks() {
+      const bbox = new THREE.Box3();
+      let hasPoints = false;
+
+      datasets.forEach(track => {
+        if (track.visible && track.points.length > 0) {
+          track.points.forEach(p => bbox.expandByPoint(p));
+          hasPoints = true;
+        }
+      });
+
+      if (!hasPoints) return;
+
+      const center = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      bbox.getCenter(center);
+      bbox.getSize(size);
+
+      const maxDim = Math.max(size.x, size.y, size.z, 40);
+
+      controls.target.copy(center);
+      camera.position.set(center.x + maxDim * 1.2, center.y + maxDim * 1.0, center.z + maxDim * 1.2);
+      controls.update();
+    }
+
+    function renderTrackListUI() {
+      const container = document.getElementById('track-list');
+      container.innerHTML = '';
+
+      if (datasets.length === 0) {
+        container.innerHTML = `<div style="font-size: 11px; color: #525266; text-align: center; padding: 14px;">Sin archivos cargados.<br><br>Arrastra tus CSV aquí para visualizarlos.</div>`;
+        return;
+      }
+
+      datasets.forEach((track) => {
+        const item = document.createElement('div');
+        item.className = 'track-item';
+
+        item.innerHTML = `
+          <div class="track-info">
+            <div class="color-indicator" style="background-color: ${track.color};"></div>
+            <div class="track-details">
+              <span class="track-name" title="${track.name}">${track.name}</span>
+              <span class="track-date">Fecha: ${track.date}</span>
+            </div>
+          </div>
+          <label class="checkbox-container">
+            <input type="checkbox" ${track.visible ? 'checked' : ''} onchange="toggleTrackVisibility('${track.id}')">
+            <span class="custom-checkbox"></span>
+          </label>
+        `;
+
+        container.appendChild(item);
+      });
+    }
+
+    function toggleTrackVisibility(id) {
+      const track = datasets.find(t => t.id === id);
+      if (track) {
+        track.visible = !track.visible;
+        if (track.group) track.group.visible = track.visible;
+        renderTrackListUI();
+        fitCameraToAllTracks();
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 3500);
+    }
+
+    window.onload = init3D;
+  </script>
+</body>
+</html>
